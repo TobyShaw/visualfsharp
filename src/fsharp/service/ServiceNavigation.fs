@@ -510,7 +510,7 @@ module NavigateTo =
     
         let addModuleAbbreviation (id: Ident) isSig container =
             addIdent NavigableItemKind.ModuleAbbreviation id isSig container
-        
+
         let addExceptionRepr (SynExceptionDefnRepr(_, UnionCase(_, id, _, _, _, _), _, _, _, _)) isSig container = 
             addIdent NavigableItemKind.Exception id isSig container
             { Type = ContainerType.Exception; Name = id.idText }

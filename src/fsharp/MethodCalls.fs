@@ -589,7 +589,6 @@ let BuildObjCtorCall (g: TcGlobals) m =
     let ilMethRef = (mkILCtorMethSpecForTy(g.ilg.typ_Object,[])).MethodRef
     Expr.Op(TOp.ILCall(false,false,false,false,CtorValUsedAsSuperInit,false,true,ilMethRef,[],[],[g.obj_ty]),[],[],m)
 
-
 /// Build a call to an F# method.
 ///
 /// Consume the arguments in chunks and build applications.  This copes with various F# calling signatures
@@ -662,12 +661,18 @@ let MakeMethInfoCall amap m minfo minst args =
 
 #if !NO_EXTENSIONTYPING
 // This imports a provided method, and checks if it is a known compiler intrinsic like "1 + 2"
-let TryImportProvidedMethodBaseAsLibraryIntrinsic (amap:Import.ImportMap, m:range, mbase: Tainted<ProvidedMethodBase>) = 
+let TryImportProvidedMethodBaseAsIntrinsicOrLocalRef (amap:Import.ImportMap, m:range, mbase: Tainted<ProvidedMethodBase>) = 
     let methodName = mbase.PUntaint((fun x -> x.Name),m)
     let declaringType = Import.ImportProvidedType amap m (mbase.PApply((fun x -> x.DeclaringType),m))
     if isAppTy amap.g declaringType then 
         let declaringEntity = tcrefOfAppTy amap.g declaringType
-        if not declaringEntity.IsLocalRef && ccuEq declaringEntity.nlr.Ccu amap.g.fslibCcu then
+        if declaringEntity.IsLocalRef then
+            mbase.PUntaint((fun p ->
+                match p.Handle with
+                | :? TastReflect.ReflectMethodDefinition as m -> Some m.Metadata
+                | _ -> None
+                ), m)
+        else if ccuEq declaringEntity.nlr.Ccu amap.g.fslibCcu then
             match amap.g.knownIntrinsics.TryGetValue ((declaringEntity.LogicalName, methodName)) with 
             | true,vref -> Some vref
             | _ -> 
@@ -730,7 +735,7 @@ let BuildMethodCall tcVal g amap isMutable m isProp minfo valUseFlags minst objA
             let useCallvirt = not valu && not direct && minfo.IsVirtual
             let isProtected = minfo.IsProtectedAccessiblity
             let exprTy = if isCtor then enclTy else minfo.GetFSharpReturnTy(amap, m, minst)
-            match TryImportProvidedMethodBaseAsLibraryIntrinsic (amap, m, providedMeth) with 
+            match TryImportProvidedMethodBaseAsIntrinsicOrLocalRef (amap, m, providedMeth) with 
             | Some fsValRef -> 
                 //reraise() calls are converted to TOp.Reraise in the type checker. So if a provided expression includes a reraise call
                 // we must put it in that form here.
@@ -839,7 +844,7 @@ module ProvidedMethodCalls =
             let fail() = raise (TypeProviderError(FSComp.SR.etUnsupportedConstantType(v.GetType().ToString()), constant.TypeProviderDesignation, m))
             try 
                 if isNull v then mkNull m ty else
-                let c = 
+                let c =
                     match v with
                     | _ when typeEquiv g normTy g.bool_ty -> Const.Bool(v :?> bool)
                     | _ when typeEquiv g normTy g.sbyte_ty -> Const.SByte(v :?> sbyte)
@@ -987,6 +992,19 @@ module ProvidedMethodCalls =
                 let elemsT = elems |> Array.map exprToExpr |> Array.toList
                 let exprT = Expr.Op(TOp.Array, [tyT],elemsT,m)
                 None, (exprT, tyOfExpr g exprT)
+            | None ->
+            match ea.PApplyOption((function ProvidedNewRecordExpr x -> Some x | _ -> None), m) with
+            | Some info -> 
+                let ty,elems = info.PApply2(id,m)
+                let tyT = Import.ImportProvidedType amap m ty
+                let tcref =
+                    match tyT with
+                    | TType_app(tcref, _) -> tcref
+                    | _ -> failwith "Expected record type"
+                let elems = elems.PApplyArray(id, "GetInvokerExpresson",m)
+                let elemsT = elems |> Array.map exprToExpr |> Array.toList
+                let exprT = Expr.Op(TOp.Recd(RecordConstructionInfo.RecdExpr, tcref), [tyT],elemsT,m)
+                None, (exprT, tyOfExpr g exprT)
             | None -> 
             match ea.PApplyOption((function ProvidedTupleGetExpr x -> Some x | _ -> None), m) with
             | Some info -> 
@@ -999,6 +1017,18 @@ module ProvidedMethodCalls =
                 let tupInfo, tysT = tryDestAnyTupleTy g typeOfExpr
                 let exprT = mkTupleFieldGet g (tupInfo, inpT, tysT, n.PUntaint(id,m), m)
                 None, (exprT, tyOfExpr g exprT)
+            | None -> 
+            match ea.PApplyOption((function ProvidedFieldGetExpr x -> Some x | _ -> None), m) with 
+            | Some info -> 
+                let (obj,fieldInfo) = info.PApply2(id, m)
+                let fieldInfo = fieldInfo.PUntaint(id,m)
+                let objExpr = (match obj.PApplyOption(id, m) with | None -> fail() | Some obj -> exprToExpr obj)
+                let typeOfExpr = tyOfExpr g objExpr
+                let tycon, tyinst = destAppTy g typeOfExpr
+                let recdFieldRef = mkRecdFieldRef tycon fieldInfo.Name
+                let recdExpr = mkRecdFieldGet g (objExpr, recdFieldRef, tyinst, m)
+                let _ = tyOfExpr g recdExpr
+                None, (recdExpr, typeOfExpr)
             | None -> 
             match ea.PApplyOption((function ProvidedLambdaExpr x -> Some x | _ -> None), m) with
             | Some info -> 

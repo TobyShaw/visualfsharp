@@ -1530,7 +1530,8 @@ let u_typar_spec_data st =
       typar_constraints=e
       typar_solution=None
       typar_xmldoc=g
-      typar_astype= Unchecked.defaultof<_> }
+      typar_astype= Unchecked.defaultof<_>
+      typar_staticarg_kind=None}
 
 let u_typar_spec st = 
     u_osgn_decl st.itypars u_typar_spec_data st 
@@ -1551,6 +1552,9 @@ let _ = fill_p_typ (fun ty st ->
     | TType_var r                       -> p_byte 4 st; p_tpref r st
     | TType_forall (tps,r)              -> p_byte 5 st; p_tup2 p_typar_specs p_typ (tps,r) st
     | TType_measure unt                 -> p_byte 6 st; p_measure_expr unt st
+#if !NO_EXTENSIONTYPING
+    | TType_staticarg _                 -> failwith "" // FS-1023 TODO
+#endif
     | TType_ucase (uc,tinst)            -> p_byte 7 st; p_tup2 p_ucref p_typs (uc,tinst) st)
 
 let _ = fill_u_typ (fun st ->
@@ -2002,6 +2006,7 @@ and u_entity_spec_data st : Entity =
       entity_cpath=x12
       entity_modul_contents=MaybeLazy.Lazy x13
       entity_exn_info=x14
+      entity_provider_abbrev=None // FS-1023 TODO: Proper pickling
       entity_il_repr_cache=newCache()  
       } 
 

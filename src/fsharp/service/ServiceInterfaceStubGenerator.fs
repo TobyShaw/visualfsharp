@@ -710,8 +710,7 @@ module internal InterfaceStubGenerator =
                 match typeDefnRepr with
                 | SynTypeDefnRepr.ObjectModel(_kind, members, _range) ->
                     List.tryPick walkSynMemberDefn members
-                | SynTypeDefnRepr.Simple(_repr, _range) -> 
-                    None
+                | SynTypeDefnRepr.Simple _
                 | SynTypeDefnRepr.Exception _ -> None
 
         and walkSynMemberDefn (memberDefn: SynMemberDefn) =

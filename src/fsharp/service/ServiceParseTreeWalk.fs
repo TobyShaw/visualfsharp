@@ -52,6 +52,9 @@ module public AstTraversal =
         /// VisitTypeAbbrev(ty,m), defaults to ignoring this leaf of the AST
         abstract VisitTypeAbbrev : SynType * range -> 'T option
         default this.VisitTypeAbbrev(_ty,_m) = None
+        /// VisitProviderAlias(ty,m), defaults to ignoring this leaf of the AST
+        abstract VisitProviderAlias : SynType * range -> 'T option
+        default this.VisitProviderAlias(_ty,_m) = None
         /// VisitImplicitInherit(defaultTraverse,ty,expr,m), defaults to just visiting expr
         abstract VisitImplicitInherit : (SynExpr -> 'T option) * SynType * SynExpr * range -> 'T option
         default this.VisitImplicitInherit(defaultTraverse, _ty, expr, _m) = defaultTraverse expr
@@ -541,10 +544,11 @@ module public AstTraversal =
             | None ->
             [
                 match synTypeDefnRepr with
+                // These nodes are generated in TypeChecker.fs, not in the AST.  
+                // But note exception declarations (and provider declarations) are missing from this tree walk.
                 | SynTypeDefnRepr.Exception _ -> 
-                    // This node is generated in TypeChecker.fs, not in the AST.  
-                    // But note exception declarations are missing from this tree walk.
                     () 
+
                 | SynTypeDefnRepr.ObjectModel(synTypeDefnKind, synMemberDefns, _oRange) ->
                     // traverse inherit function is used to capture type specific data required for processing Inherit part
                     let traverseInherit (synType : SynType, range : range) = 

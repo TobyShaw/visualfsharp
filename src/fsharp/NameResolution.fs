@@ -1127,6 +1127,8 @@ let ResolveProvidedTypeNameInEntity (amap, m, typeName, modref: ModuleOrNamespac
             []
         | nestedSty -> 
             [AddEntityForProvidedType (amap, modref, resolutionEnvironment, nestedSty, m) ]
+    // We are in a module/namespace, which may contain a provider alias. TODO: Implement
+    | TNoRepr -> []
     | _ -> []
 #endif
 
@@ -2492,7 +2494,6 @@ let rec ResolveExprLongIdentPrim sink (ncenv:NameResolver) fullyQualified m ad n
               | _ ->
 
               let tyconSearch = tyconSearch ad
-
               match tyconSearch with
               | Result res when not (isNil res) -> tyconSearch
               | _ ->

@@ -494,7 +494,7 @@ type Entity =
 
       // MUTABILITY; used only when establishing tycons. 
       mutable entity_kind : TyparKind
-      
+
       mutable entity_flags : EntityFlags
       
       /// The unique stamp of the "tycon blob". Note the same tycon in signature and implementation get different stamps 
@@ -533,7 +533,12 @@ type Entity =
       /// If non-None, indicates the type is an abbreviation for another type. 
       //
       // MUTABILITY; used only during creation and remapping of tycons 
-      mutable entity_tycon_abbrev: TType option             
+      mutable entity_tycon_abbrev: TType option
+      
+      /// If non-None, indicates the type is an abbreviation for another type involving a type provider. 
+      //
+      // MUTABILITY; used only during creation and remapping of tycons 
+      mutable entity_provider_abbrev: TType option
       
       /// The methods and properties of the type 
       //
@@ -593,7 +598,7 @@ type Entity =
 #if !NO_EXTENSIONTYPING
     member x.IsStaticInstantiationTycon = 
         x.IsProvidedErasedTycon &&
-            let _nm,args = PrettyNaming.demangleProvidedTypeName x.LogicalName
+            let _nm,args = demangleProvidedTypeName x.LogicalName
             args.Length > 0 
 #endif
 
@@ -611,7 +616,7 @@ type Entity =
 
 #if !NO_EXTENSIONTYPING
         if x.IsProvidedErasedTycon then 
-            let nm,args = PrettyNaming.demangleProvidedTypeName nm
+            let nm,args = demangleProvidedTypeName nm
             if withStaticParameters && args.Length > 0 then 
                 nm + "<" + String.concat "," (Array.map snd args) + ">"
             else
@@ -694,6 +699,9 @@ type Entity =
     /// The information about the r.h.s. of an F# exception definition, if any. 
     member x.ExceptionInfo = x.entity_exn_info
 
+    /// The information about the r.h.s. of an F# provider definition, if any. 
+    member x.ProviderInfo = x.entity_provider_abbrev
+
     /// Indicates if the entity represents an F# exception declaration.
     member x.IsExceptionDecl = match x.ExceptionInfo with TExnNone -> false | _ -> true
 
@@ -714,6 +722,9 @@ type Entity =
 
     /// Indicates if this entity is an F# type abbreviation definition
     member x.IsTypeAbbrev = x.TypeAbbrev.IsSome
+
+    /// Indicates if this entity is an F# provider abbreviation definition
+    member x.ProviderAbbrev = x.ProviderAbbrev
 
     /// Get the value representing the accessibility of the r.h.s. of an F# type definition.
     member x.TypeReprAccessibility = x.entity_tycon_repr_accessibility
@@ -745,7 +756,11 @@ type Entity =
         match x.TypeReprInfo with 
         | TProvidedTypeExtensionPoint _ -> true
         | TProvidedNamespaceExtensionPoint _ -> true
-        | _ -> false
+        | _ ->
+            // 
+            match x.TypeAbbrev with
+            | Some (TType_app(tcref,_)) -> tcref.IsProvided
+            | _ -> false
 
     /// Indicates if the entity is a provided namespace fragment
     member x.IsProvidedNamespace = 
@@ -771,6 +786,9 @@ type Entity =
         x.IsMeasureableReprTycon 
 #if !NO_EXTENSIONTYPING
         || x.IsProvidedErasedTycon
+        || (match x.TypeAbbrev with
+            | Some (TType_app(tcref,_)) -> tcref.IsErased
+            | _ -> false)
 #endif
 
     /// Get a blob of data indicating how this type is nested inside other namespaces, modules and types.
@@ -861,6 +879,7 @@ type Entity =
           entity_tycon_repr= Unchecked.defaultof<_>
           entity_tycon_abbrev= Unchecked.defaultof<_>
           entity_tycon_tcaug= Unchecked.defaultof<_>
+          entity_provider_abbrev= Unchecked.defaultof<_>
           entity_exn_info= Unchecked.defaultof<_>
           entity_modul_contents= Unchecked.defaultof<_>
           entity_xmldoc = Unchecked.defaultof<_>
@@ -1556,8 +1575,8 @@ and ExceptionInfo =
 
 and 
     [<Sealed>]
-    ModuleOrNamespaceType(kind: ModuleOrNamespaceKind, vals: QueueList<Val>, entities: QueueList<Entity>) = 
-
+    ModuleOrNamespaceType(kind: ModuleOrNamespaceKind, vals: QueueList<Val>, entities: QueueList<Entity>) =
+      
       /// Mutation used during compilation of FSharp.Core.dll
       let mutable entities = entities 
       
@@ -1820,6 +1839,7 @@ and Construct =
             entity_tycon_repr = repr
             entity_tycon_repr_accessibility = TAccess([])
             entity_exn_info=TExnNone
+            entity_provider_abbrev=None
             entity_tycon_tcaug=TyconAugmentation.Create()
             entity_modul_contents = MaybeLazy.Lazy (lazy new ModuleOrNamespaceType(Namespace, QueueList.ofList [], QueueList.ofList []))
             // Generated types get internal accessibility
@@ -1848,6 +1868,7 @@ and Construct =
             entity_tycon_repr = TNoRepr
             entity_tycon_repr_accessibility = access
             entity_exn_info=TExnNone
+            entity_provider_abbrev=None
             entity_tycon_tcaug=TyconAugmentation.Create()
             entity_pubpath=cpath |> Option.map (fun (cp:CompilationPath) -> cp.NestedPublicPath id)
             entity_cpath=cpath
@@ -1860,7 +1881,11 @@ and Construct =
 and Accessibility = 
     /// Indicates the construct can only be accessed from any code in the given type constructor, module or assembly. [] indicates global scope. 
     | TAccess of CompilationPath list
-    
+and StaticArgSolution =
+    {
+        typar : Typar
+        mutable kind : TType option
+    }
 and TyparData = Typar
 and 
     [<NoEquality; NoComparison>]
@@ -1902,6 +1927,9 @@ and
        
        /// An inferred equivalence for a type inference variable. 
       mutable typar_solution: TType option
+
+      /// When this typar represents a static parameter to a provider, what is its kind.
+      mutable typar_staticarg_kind : TType option
        
        /// The inferred constraints for the type inference variable 
       mutable typar_constraints: TyparConstraint list 
@@ -1976,7 +2004,8 @@ and
           typar_attribs = Unchecked.defaultof<_>       
           typar_solution = Unchecked.defaultof<_>
           typar_constraints = Unchecked.defaultof<_>
-          typar_astype = Unchecked.defaultof<_> }
+          typar_astype = Unchecked.defaultof<_>
+          typar_staticarg_kind = Unchecked.defaultof<_>}
 
     /// Creates a type variable based on the given data. Only used during unpickling of F# metadata.
     static member New (data: TyparData) : Typar = data
@@ -2721,7 +2750,8 @@ and NonLocalEntityRef    =
                     [ for resolver in resolvers  do
                         let moduleOrNamespace = if j = 0 then null else path.[0..j-1]
                         let typename = path.[j]
-                        let resolution = ExtensionTyping.TryLinkProvidedType(resolver,moduleOrNamespace,typename,m)
+                        let importQualifiedTypeNameAsTypeValue (qname: string) = ccu.ImportQualifiedTypeNameAsTypeValue(qname, m)
+                        let resolution = ExtensionTyping.TryLinkProvidedType(resolver,importQualifiedTypeNameAsTypeValue,moduleOrNamespace,typename,m)
                         match resolution with
                         | None | Some (Tainted.Null) -> ()
                         | Some st -> yield (resolver,st) ]
@@ -3520,6 +3550,11 @@ and
     /// Indicates the type is a unit-of-measure expression being used as an argument to a type or member
     | TType_measure of Measure
 
+#if !NO_EXTENSIONTYPING
+    /// Indicates the type is a static argument to a type provider
+    | TType_staticarg of TType * StaticArg
+#endif
+
     override x.ToString() =  
         match x with 
         | TType_forall (_tps,ty) -> "forall _. " + ty.ToString()
@@ -3533,6 +3568,10 @@ and
         | TType_ucase (uc,tinst) -> "union case type " + uc.CaseName + (match tinst with [] -> "" | tys -> "<" + String.concat "," (List.map string tys) + ">")
         | TType_var tp -> tp.DisplayName
         | TType_measure ms -> sprintf "%A" ms
+#if !NO_EXTENSIONTYPING
+        | TType_staticarg (_,arg) -> "static arg " + arg.ToString()
+#endif
+
 
     /// For now, used only as a discriminant in error message.
     /// See https://github.com/Microsoft/visualfsharp/issues/2561
@@ -3547,6 +3586,9 @@ and
         | TType_ucase (_uc,_tinst)       ->
             let (TILObjectReprData(scope,_nesting,_definition)) = _uc.Tycon.ILTyconInfo
             scope.QualifiedName
+#if !NO_EXTENSIONTYPING
+        | TType_staticarg(_,_arg)        -> ""
+#endif
 
 and TypeInst = TType list 
 and TTypes = TType list 
@@ -3603,10 +3645,19 @@ and
       /// Triggered when the contents of the CCU are invalidated
       InvalidateEvent : IEvent<string> 
 
-      /// A helper function used to link method signatures using type equality. This is effectively a forward call to the type equality 
-      /// logic in tastops.fs
+      /// A helper function used to link provided types
       ImportProvidedType : Tainted<ProvidedType> -> TType 
       
+      /// A helper function used to link provided types
+      ImportQualifiedTypeNameAsTypeValue : string * range -> System.Type
+
+      /// The data strcture to amortize the production of types as values
+      mutable ReflectAssembly : Lazy<System.Reflection.Assembly>
+
+      /// A hack used to get back to the assembly being compiled.  This is called when we 
+      // a type in the assembly being compiled has been used as a type argument to a type provider.
+      mutable GetCcuBeingCompiledHack : unit -> CcuThunk option
+
 #endif
       /// Indicates that this DLL uses pre-F#-4.0 quotation literals somewhere. This is used to implement a restriction on static linking
       mutable UsesFSharp20PlusQuotations : bool
@@ -3694,6 +3745,11 @@ and CcuThunk =
     /// Used to make 'forward' calls into the loader during linking
     member ccu.ImportProvidedType ty : TType = ccu.Deref.ImportProvidedType ty
 
+      /// A helper function used to link provided types
+    member ccu.ImportQualifiedTypeNameAsTypeValue (qname, m) : System.Type = ccu.Deref.ImportQualifiedTypeNameAsTypeValue (qname, m)
+    member ccu.ReflectAssembly = ccu.Deref.ReflectAssembly.Value
+    member ccu.GetCcuBeingCompiledHack() = ccu.Deref.GetCcuBeingCompiledHack()
+      
 #endif
 
     /// The fully qualified assembly reference string to refer to this assembly. This is persisted in quotations 
@@ -3823,7 +3879,7 @@ and [<RequireQualifiedAccess>]
     | Double   of double
     | Char     of char
     | String   of string // in unicode 
-    | Decimal  of Decimal 
+    | Decimal  of Decimal
     | Unit
     | Zero // null/zero-bit-pattern 
   
@@ -4874,7 +4930,8 @@ let NewTypar (kind,rigid,Typar(id,staticReq,isCompGen),isFromError,dynamicReq,at
         typar_solution = None
         typar_constraints=[]
         typar_xmldoc = XmlDoc.Empty 
-        typar_astype = Unchecked.defaultof<_>} 
+        typar_astype = Unchecked.defaultof<_>
+        typar_staticarg_kind = None} 
 
 let NewRigidTypar nm m = NewTypar (TyparKind.Type,TyparRigidity.Rigid,Typar(mkSynId m nm,NoStaticReq,true),false,TyparDynamicReq.Yes,[],false,false)
 
@@ -4905,6 +4962,7 @@ let NewExn cpath (id:Ident) access repr attribs doc =
         entity_range=id.idRange
         entity_other_range=None
         entity_exn_info= repr
+        entity_provider_abbrev=None
         entity_tycon_tcaug=TyconAugmentation.Create()
         entity_xmldoc=doc
         entity_xmldocsig=""
@@ -4952,6 +5010,7 @@ let NewTycon (cpath, nm, m, access, reprAccess, kind, typars, docOption, usesPre
         entity_tycon_repr = TNoRepr
         entity_tycon_repr_accessibility = reprAccess
         entity_exn_info=TExnNone
+        entity_provider_abbrev=None
         entity_tycon_tcaug=TyconAugmentation.Create()
         entity_modul_contents = mtyp
         entity_accessiblity=access

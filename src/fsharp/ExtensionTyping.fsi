@@ -18,11 +18,15 @@ module internal ExtensionTyping =
 
     type TypeProviderDesignation = TypeProviderDesignation of string
 
+    type StaticArg = StaticArg of obj
+
     /// Raised when a type provider has thrown an exception.    
     exception ProvidedTypeResolution of range * exn
 
     /// Raised when an type provider has thrown an exception.    
     exception ProvidedTypeResolutionNoRange of exn
+
+    val demangleProvidedTypeName : string -> string * (string * string)[]
 
     /// Get the list of relative paths searched for type provider design-time components
     val toolingCompatiblePaths: unit -> string list
@@ -92,18 +96,20 @@ module internal ExtensionTyping =
     type CustomAttributeTypedArgument = Microsoft.FSharp.Core.CompilerServices.IProvidedCustomAttributeTypedArgument
 #endif
 
-    type [<AllowNullLiteral; Sealed; Class>] 
-        ProvidedType =
+    [<AllowNullLiteral; Sealed; Class>]
+    type ProvidedType =
         inherit ProvidedMemberInfo
         member IsSuppressRelocate : bool
         member IsErased : bool
         member IsGenericType : bool
         member Namespace : string
         member FullName : string
+        member Name : string
         member IsArray : bool
         member GetInterfaces : unit -> ProvidedType[]
         member Assembly : ProvidedAssembly
         member BaseType : ProvidedType
+        member DeclaringType : ProvidedType
         member GetNestedType : string -> ProvidedType
         member GetNestedTypes : unit -> ProvidedType[]
         member GetAllNestedTypes : unit -> ProvidedType[]
@@ -141,7 +147,7 @@ module internal ExtensionTyping =
         static member ApplyContext : ProvidedType * ProvidedTypeContext -> ProvidedType
         member Context : ProvidedTypeContext 
         interface IProvidedCustomAttributeProvider
-        static member TaintedEquals : Tainted<ProvidedType> * Tainted<ProvidedType> -> bool 
+        static member TaintedEquals : Tainted<ProvidedType> * Tainted<ProvidedType> -> bool
 
     and [<AllowNullLiteral>] 
         IProvidedCustomAttributeProvider =
@@ -177,6 +183,7 @@ module internal ExtensionTyping =
         member IsAbstract : bool
         member IsHideBySig : bool
         member IsConstructor : bool
+        member Handle : System.Reflection.MethodBase
         member GetParameters : unit -> ProvidedParameterInfo[]
         member GetGenericArguments : unit -> ProvidedType[]
         member GetStaticParametersForMethod : ITypeProvider -> ProvidedParameterInfo[]
@@ -265,6 +272,9 @@ module internal ExtensionTyping =
     val (|ProvidedAddressOfExpr|_|)  : ProvidedExpr -> ProvidedExpr option
 #endif
 
+    /// Detect a provided new-record expression 
+    val (|ProvidedNewRecordExpr|_|)     : ProvidedExpr -> (ProvidedType * ProvidedExpr[]) option
+
     /// Detect a provided new-object expression 
     val (|ProvidedNewObjectExpr|_|)     : ProvidedExpr -> (ProvidedConstructorInfo * ProvidedExpr[]) option
 
@@ -304,6 +314,12 @@ module internal ExtensionTyping =
     /// Detect a provided tuple-get expression 
     val (|ProvidedTupleGetExpr|_|)   : ProvidedExpr -> (ProvidedExpr * int) option
 
+    // Detect a provided field-get expression
+    val (|ProvidedFieldGetExpr|_|)   : ProvidedExpr -> (ProvidedExpr option * ProvidedFieldInfo) option
+
+    // Detect a provided property-get expression
+    val (|ProvidedPropertyGetExpr|_|)   : ProvidedExpr -> (ProvidedExpr option * ProvidedPropertyInfo * ProvidedExpr list) option
+
     /// Detect a provided type-as expression 
     val (|ProvidedTypeAsExpr|_|)      : ProvidedExpr -> (ProvidedExpr * ProvidedType) option
 
@@ -322,6 +338,8 @@ module internal ExtensionTyping =
     /// Detect a provided 'Var' expression 
     val (|ProvidedVarExpr|_|)  : ProvidedExpr -> ProvidedVar option
 
+    val computeFullTypePathAfterArguments : Tainted<ProvidedType> -> StaticArg[] -> range -> string list
+
     /// Get the provided expression for a particular use of a method.
     val GetInvokerExpression : ITypeProvider * ProvidedMethodBase * ProvidedVar[] ->  ProvidedExpr
 
@@ -331,16 +349,16 @@ module internal ExtensionTyping =
     /// Try to apply a provided type to the given static arguments. If successful also return a function 
     /// to check the type name is as expected (this function is called by the caller of TryApplyProvidedType
     /// after other checks are made).
-    val TryApplyProvidedType : typeBeforeArguments:Tainted<ProvidedType> * optGeneratedTypePath: string list option * staticArgs:obj[]  * range -> (Tainted<ProvidedType> * (unit -> unit)) option
+    val TryApplyProvidedType : typeBeforeArguments:Tainted<ProvidedType> * optGeneratedTypePath: string list option * staticArgs:StaticArg[]  * range -> (Tainted<ProvidedType> * (unit -> unit)) option
 
     /// Try to apply a provided method to the given static arguments. 
-    val TryApplyProvidedMethod : methBeforeArguments:Tainted<ProvidedMethodBase> * staticArgs:obj[]  * range -> Tainted<ProvidedMethodBase> option
+    val TryApplyProvidedMethod : methBeforeArguments:Tainted<ProvidedMethodBase> * staticArgs:StaticArg[]  * range -> Tainted<ProvidedMethodBase> option
 
     /// Try to resolve a type in the given extension type resolver
     val TryResolveProvidedType : Tainted<ITypeProvider> * range * string[] * typeName: string -> Tainted<ProvidedType> option
 
     /// Try to resolve a type in the given extension type resolver
-    val TryLinkProvidedType : Tainted<ITypeProvider> * string[] * typeLogicalName: string * range: range -> Tainted<ProvidedType> option
+    val TryLinkProvidedType : resolver:Tainted<ITypeProvider> * importQualifiedTypeNameAsTypeValue: (string -> Type) * string[] * typeLogicalName: string * range: range -> Tainted<ProvidedType> option
 
     /// Get the parts of a .NET namespace. Special rules: null means global, empty is not allowed.
     val GetProvidedNamespaceAsPath : range * Tainted<ITypeProvider> * string -> string list

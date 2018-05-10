@@ -4833,24 +4833,16 @@ and TcStaticConstantParameter cenv (env:TcEnv) tpenv occ (v:SynType) container =
         | TyparKind.Measure ->
             error(Error(FSComp.SR.tcInvalidConstantExpression(),v.Range))
     | SynType.Var (SynTypar.Typar (_a,NoStaticReq,false), _range) ->
-            TryFindUnscopedTypar _a.idText tpenv
-            |> Option.orElse (Map.tryFind _a.idText env.NameEnv.eTypars)
-            |> function
-            | Some typar ->
-                (None, TType_var typar), tpenv
-
-                // VAR_CASE
-                //match occ with
-                //| ItemOccurence.UseInType ->
-                //    (None, TType_var typar), tpenv
-                //| _ ->
-                //    let _assm = cenv.topCcu.ReflectAssembly :?> TastReflect.ReflectAssembly
-                //    let st = _assm.TxTType (TType_var typar)
-                //    (None, TType_staticarg (cenv.g.system_Type_typ, StaticArg (box st))), tpenv
-
-            | None -> fail()
+        TryFindUnscopedTypar _a.idText tpenv
+        |> Option.orElse (Map.tryFind _a.idText env.NameEnv.eTypars)
+        |> function
+        | Some typar ->
+            (None, TType_var typar), tpenv
+        | None ->
+            let suggestions() = HashSet<string>() // FS-1023 TODO
+            error (UndefinedName(0, FSComp.SR.undefinedNameTypeParameter, _a, suggestions))
     | _ ->
-        fail()
+        error(Error(FSComp.SR.tcInvalidConstantExpression(),v.Range))
 
 and TcStaticConstantParameters cenv env tpenv occ container args =
     args |> List.mapFold (fun tpenv x -> TcStaticConstantParameter cenv env tpenv occ x container) tpenv

@@ -7,6 +7,7 @@ Imports System.Collections.Generic
 Imports System.Diagnostics
 Imports System.Drawing
 Imports System.IO
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 
 Namespace Microsoft.VisualStudio.Editors.Common

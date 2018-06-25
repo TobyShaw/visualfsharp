@@ -292,8 +292,11 @@ let rec CheckTypeDeep ((visitTy,visitTyconRefOpt,visitAppTyOpt,visitTraitSolutio
           if not tp.IsSolved then 
               match visitTyarOpt with 
               | None -> ()
-              | Some visitTyar -> 
-                    visitTyar (env,tp)
+              | Some visitTypar -> 
+                    visitTypar (env,tp)
+#if !NO_EXTENSIONTYPING
+    | TType_staticarg _ -> failwith "" // FS-1023 TODO
+#endif
 
 and CheckTypesDeep f g env tys = 
     tys |> List.iter (CheckTypeDeep f g env true)

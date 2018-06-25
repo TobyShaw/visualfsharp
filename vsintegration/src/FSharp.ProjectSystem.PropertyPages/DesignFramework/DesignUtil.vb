@@ -8,6 +8,7 @@ Imports System.Runtime.InteropServices
 Imports VSHelp = Microsoft.VisualStudio.VSHelp
 Imports TextManager = Microsoft.VisualStudio.TextManager
 Imports Design = Microsoft.VisualStudio.Shell.Design
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 
 Namespace Microsoft.VisualStudio.Editors.DesignerFramework

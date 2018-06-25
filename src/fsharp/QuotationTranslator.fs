@@ -931,7 +931,7 @@ and IsILTypeRefStaticLinkLocal cenv m (tr:ILTypeRef) =
                  // which import types (and resolve assemblies from the tcImports tables) happen on the compilation thread.
                  let ctok = AssumeCompilationThreadWithoutEvidence() 
 
-                 (match cenv.amap.assemblyLoader.FindCcuFromAssemblyRef (ctok, m,aref) with 
+                 (match cenv.amap.assemblyLoader.FindCcuFromScopeRef (ctok, m, ILScopeRef.Assembly aref) with 
                   | ResolvedCcu ccu -> ccu.IsProviderGenerated
                   | UnresolvedCcu _ -> false) 
             -> true

@@ -23,6 +23,7 @@ Imports System.Windows.Forms.Design
 Imports Microsoft.VisualStudio.Shell
 Imports VB = Microsoft.VisualBasic
 Imports VSHelp = Microsoft.VisualStudio.VSHelp
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 Namespace Microsoft.VisualStudio.Editors.PropertyPages
 

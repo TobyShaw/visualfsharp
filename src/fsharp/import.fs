@@ -17,6 +17,7 @@ open Microsoft.FSharp.Compiler.TcGlobals
 open Microsoft.FSharp.Compiler.Ast
 open Microsoft.FSharp.Compiler.ErrorLogger
 #if !NO_EXTENSIONTYPING
+open Microsoft.FSharp.Compiler.TastReflect
 open Microsoft.FSharp.Compiler.ExtensionTyping
 #endif
 
@@ -25,7 +26,7 @@ open Microsoft.FSharp.Compiler.ExtensionTyping
 type AssemblyLoader = 
 
     /// Resolve an Abstract IL assembly reference to a Ccu
-    abstract FindCcuFromAssemblyRef : CompilationThreadToken * range * ILAssemblyRef -> CcuResolutionResult
+    abstract FindCcuFromScopeRef : CompilationThreadToken * range * ILScopeRef -> CcuResolutionResult
 #if !NO_EXTENSIONTYPING
 
     /// Get a flag indicating if an assembly is a provided assembly, plus the
@@ -59,16 +60,11 @@ type ImportMap(g:TcGlobals,assemblyLoader:AssemblyLoader) =
     member this.ILTypeRefToTyconRefCache = typeRefToTyconRefCache
 
 let CanImportILScopeRef (env:ImportMap) m scoref = 
-    match scoref with 
-    | ILScopeRef.Local    -> true
-    | ILScopeRef.Module _ -> true
-    | ILScopeRef.Assembly assref -> 
-
         // Explanation: This represents an unchecked invariant in the hosted compiler: that any operations
         // which import types (and resolve assemblies from the tcImports tables) happen on the compilation thread.
         let ctok = AssumeCompilationThreadWithoutEvidence() 
 
-        match env.assemblyLoader.FindCcuFromAssemblyRef (ctok, m, assref) with
+        match env.assemblyLoader.FindCcuFromScopeRef (ctok, m, scoref) with
         | UnresolvedCcu _ ->  false
         | ResolvedCcu _ -> true
 
@@ -80,11 +76,7 @@ let ImportTypeRefData (env:ImportMap) m (scoref,path,typeName) =
     // which import types (and resolve assemblies from the tcImports tables) happen on the compilation thread.
     let ctok = AssumeCompilationThreadWithoutEvidence()
 
-    let ccu =  
-        match scoref with 
-        | ILScopeRef.Local    -> error(InternalError("ImportILTypeRef: unexpected local scope",m))
-        | ILScopeRef.Module _ -> error(InternalError("ImportILTypeRef: reference found to a type in an auxiliary module",m))
-        | ILScopeRef.Assembly assref -> env.assemblyLoader.FindCcuFromAssemblyRef (ctok, m, assref)  // NOTE: only assemblyLoader callsite
+    let ccu = env.assemblyLoader.FindCcuFromScopeRef (ctok, m, scoref)  // NOTE: only assemblyLoader callsite
 
     // Do a dereference of a fake tcref for the type just to check it exists in the target assembly and to find
     // the corresponding Tycon.
@@ -93,13 +85,37 @@ let ImportTypeRefData (env:ImportMap) m (scoref,path,typeName) =
         | ResolvedCcu ccu->ccu
         | UnresolvedCcu ccuName -> 
             error (Error(FSComp.SR.impTypeRequiredUnavailable(typeName, ccuName),m))
+
     let fakeTyconRef = mkNonLocalTyconRef (mkNonLocalEntityRef ccu path) typeName
-    let tycon = 
-        try   
-            fakeTyconRef.Deref
+    let (wasReflectResolved, tycon) =
+        try
+#if !NO_EXTENSIONTYPING
+            match fakeTyconRef.TryDeref with
+            | ValueSome r -> false, r
+            | ValueNone ->
+                let asm = ccu.ReflectAssembly :?> TastReflect.ReflectAssembly
+                let typ = asm.GetType(String.concat "." (Array.toList path@[typeName]))
+                let ttyp =
+                    match typ with
+                    | :? TastReflect.ReflectTypeDefinition as typ ->
+                        typ.Metadata.Deref
+                    | :? TastReflect.ReflectTypeSymbol as typ ->
+                        match typ.Kind with
+                        | ReflectTypeSymbolKind.Generic typ -> typ.Metadata.Deref
+                        | ReflectTypeSymbolKind.SDArray 
+                        | ReflectTypeSymbolKind.Array _ 
+                        | ReflectTypeSymbolKind.Pointer 
+                        | ReflectTypeSymbolKind.ByRef -> failwith "Handle this case" // FS-1023 TODO
+                    | _ -> failwith "Unexpected"
+                true, ttyp
+#else
+            false, fakeTyconRef.Deref
+#endif
         with _ ->
             error (Error(FSComp.SR.impReferencedTypeCouldNotBeFoundInAssembly(String.concat "." (Array.append path  [| typeName |]), ccu.AssemblyName),m))
+
 #if !NO_EXTENSIONTYPING
+
     // Validate (once because of caching)
     match tycon.TypeReprInfo with
     | TProvidedTypeExtensionPoint info ->
@@ -108,10 +124,15 @@ let ImportTypeRefData (env:ImportMap) m (scoref,path,typeName) =
     | _ -> 
             ()
 #endif
-    match tryRescopeEntity ccu tycon with 
-    | None -> error (Error(FSComp.SR.impImportedAssemblyUsesNotPublicType(String.concat "." (Array.toList path@[typeName])),m))
-    | Some tcref -> tcref
-    
+    if wasReflectResolved then
+        match tryRescopeEntity ccu tycon with
+        | Some tcref -> tcref
+        | None -> mkLocalEntityRef tycon
+    else
+        match tryRescopeEntity ccu tycon with
+        | None -> error (Error(FSComp.SR.impImportedAssemblyUsesNotPublicType(String.concat "." (Array.toList path@[typeName])),m))
+        | Some tcref -> tcref
+
 
 /// Import a reference to a type definition, given an AbstractIL ILTypeRef, without caching
 //
@@ -197,11 +218,17 @@ let rec CanImportILType (env:ImportMap) m ty =
 #if !NO_EXTENSIONTYPING
 
 /// Import a provided type reference as an F# type TyconRef
-let ImportProvidedNamedType (env:ImportMap) (m:range) (st:Tainted<ProvidedType>) = 
+let ImportProvidedNamedType (env:ImportMap) (m:range) (st:Tainted<ProvidedType>) =
+    let tryGetTyconRef (pt : ProvidedType) =
+        match pt.RawSystemType with
+        | :? ReflectTypeDefinition as pt -> Some pt.Metadata
+        | :? ReflectTypeSymbol as _pt -> failwith ""
+        | _ -> pt.TryGetTyconRef() |> Option.map (fun x -> x :?> TyconRef)
+
     // See if a reverse-mapping exists for a generated/relocated System.Type
-    match st.PUntaint((fun st -> st.TryGetTyconRef()),m) with 
-    | Some x -> (x :?> TyconRef)
-    | None ->         
+    match st.PUntaint(tryGetTyconRef, m) with
+    | Some x -> x
+    | None ->
         let tref = ExtensionTyping.GetILTypeRefOfProvidedType (st,m)
         ImportILTypeRef env m tref
 
@@ -266,6 +293,13 @@ let rec ImportProvidedType (env:ImportMap) (m:range) (* (tinst:TypeInst) *) (st:
             mkVoidPtrTy g 
         else
             mkNativePtrTy g elemTy
+    elif st.PUntaint((fun st -> st.IsGenericParameter),m) then
+        let getTypeVar (t : ProvidedType) =
+            let underlying = t.RawSystemType
+            match underlying with
+            | :? ReflectTypar as tpar -> TType.TType_var tpar.Metadata
+            | _ -> failwith "" // FS-1023 TODO
+        st.PUntaint(getTypeVar, m)
     else
 
         // REVIEW: Extension type could try to be its own generic arg (or there could be a type loop)
@@ -576,6 +610,9 @@ let ImportILAssembly(amap:(unit -> ImportMap), m, auxModuleLoader, ilScopeRef, s
             InvalidateEvent=invalidateCcu
             IsProviderGenerated = false
             ImportProvidedType = (fun ty -> ImportProvidedType (amap()) m ty)
+            ImportQualifiedTypeNameAsTypeValue = (fun _ -> failwith (sprintf "ImportQualifiedTypeNameAsTypeValue: from IL assembly!? %s" ilScopeRef.QualifiedName))
+            ReflectAssembly = lazy failwith (sprintf "ReflectAssembly: from IL assembly!? %s" ilScopeRef.QualifiedName)
+            GetCcuBeingCompiledHack = (fun () -> None)
 #endif
             QualifiedName= Some ilScopeRef.QualifiedName
             Contents = NewCcuContents ilScopeRef m nm mty 

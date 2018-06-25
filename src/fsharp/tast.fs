@@ -569,7 +569,7 @@ type EntityOptionalData =
       /// If non-None, indicates the type is an abbreviation for another type. 
       //
       // MUTABILITY; used only during creation and remapping of tycons 
-      mutable entity_tycon_abbrev: TType option             
+      mutable entity_tycon_abbrev: TType option            
 
       /// The declared accessibility of the representation, not taking signatures into account 
       mutable entity_tycon_repr_accessibility: Accessibility
@@ -679,7 +679,7 @@ and /// Represents a type definition, exception definition, module definition or
 #if !NO_EXTENSIONTYPING
     member x.IsStaticInstantiationTycon = 
         x.IsProvidedErasedTycon &&
-            let _nm,args = PrettyNaming.demangleProvidedTypeName x.LogicalName
+            let _nm,args = demangleProvidedTypeName x.LogicalName
             args.Length > 0 
 #endif
 
@@ -697,7 +697,7 @@ and /// Represents a type definition, exception definition, module definition or
 
 #if !NO_EXTENSIONTYPING
         if x.IsProvidedErasedTycon then 
-            let nm,args = PrettyNaming.demangleProvidedTypeName nm
+            let nm,args = demangleProvidedTypeName nm
             if withStaticParameters && args.Length > 0 then 
                 nm + "<" + String.concat "," (Array.map snd args) + ">"
             else
@@ -836,6 +836,9 @@ and /// Represents a type definition, exception definition, module definition or
     /// Indicates if this entity is an F# type abbreviation definition
     member x.IsTypeAbbrev = x.TypeAbbrev.IsSome
 
+    /// Indicates if this entity is an F# provider abbreviation definition
+    member x.ProviderAbbrev = x.ProviderAbbrev
+
     /// Get the value representing the accessibility of the r.h.s. of an F# type definition.
     member x.TypeReprAccessibility =
         match x.entity_opt_data with
@@ -872,7 +875,11 @@ and /// Represents a type definition, exception definition, module definition or
         match x.TypeReprInfo with 
         | TProvidedTypeExtensionPoint _ -> true
         | TProvidedNamespaceExtensionPoint _ -> true
-        | _ -> false
+        | _ ->
+            // 
+            match x.TypeAbbrev with
+            | Some (TType_app(tcref,_)) -> tcref.IsProvided
+            | _ -> false
 
     /// Indicates if the entity is a provided namespace fragment
     member x.IsProvidedNamespace = 
@@ -898,6 +905,9 @@ and /// Represents a type definition, exception definition, module definition or
         x.IsMeasureableReprTycon 
 #if !NO_EXTENSIONTYPING
         || x.IsProvidedErasedTycon
+        || (match x.TypeAbbrev with
+            | Some (TType_app(tcref,_)) -> tcref.IsErased
+            | _ -> false)
 #endif
 
     /// Get a blob of data indicating how this type is nested inside other namespaces, modules and types.
@@ -2078,6 +2088,9 @@ and
       /// MUTABILITY: for linking when unpickling
       mutable typar_xmldoc : XmlDoc
 
+      /// When this typar represents a static parameter to a provider, what is its kind.
+      mutable typar_staticarg_kind : TType option
+
       /// The inferred constraints for the type inference variable 
       mutable typar_constraints: TyparConstraint list 
 
@@ -2089,6 +2102,7 @@ and
     member x.DebugText  =  x.ToString()
 
     override __.ToString() = sprintf "TyparOptionalData(...)"
+
 
 and TyparData = Typar
 
@@ -2180,7 +2194,17 @@ and
         | [], Some { typar_il_name = None; typar_xmldoc = XmlDoc [||]; typar_constraints = [] } ->
             x.typar_opt_data <- None
         | _, Some optData -> optData.typar_attribs <- attribs
-        | _ -> x.typar_opt_data <- Some { typar_il_name = None; typar_xmldoc = XmlDoc.Empty; typar_constraints = []; typar_attribs = attribs }
+        | _ -> x.typar_opt_data <- Some { typar_il_name = None; typar_xmldoc = XmlDoc.Empty; typar_constraints = []; typar_attribs = attribs; typar_staticarg_kind = None }
+
+    member x.StaticArgKind =
+        match x.typar_opt_data with
+        | Some optData -> optData.typar_staticarg_kind
+        | _ -> None
+
+    member x.SetStaticArgKind kind =
+        match x.typar_opt_data with
+        | Some optData -> optData.typar_staticarg_kind <- kind
+        | _ -> x.typar_opt_data <- Some { typar_il_name = None; typar_xmldoc = XmlDoc.Empty; typar_constraints = []; typar_attribs = []; typar_staticarg_kind = kind }
 
     member x.XmlDoc              =
         match x.typar_opt_data with
@@ -2195,7 +2219,7 @@ and
     member x.SetILName il_name   =
         match x.typar_opt_data with
         | Some optData -> optData.typar_il_name <- il_name
-        | _ -> x.typar_opt_data <- Some { typar_il_name = il_name; typar_xmldoc = XmlDoc.Empty; typar_constraints = []; typar_attribs = [] }
+        | _ -> x.typar_opt_data <- Some { typar_il_name = il_name; typar_xmldoc = XmlDoc.Empty; typar_constraints = []; typar_attribs = []; typar_staticarg_kind = None }
 
     /// Indicates the display name of a type variable
     member x.DisplayName = if x.Name = "?" then "?"+string x.Stamp else x.Name
@@ -2207,7 +2231,7 @@ and
         | [], Some { typar_il_name = None; typar_xmldoc = XmlDoc [||]; typar_attribs = [] } ->
             x.typar_opt_data <- None
         | _, Some optData -> optData.typar_constraints <- cs
-        | _ -> x.typar_opt_data <- Some { typar_il_name = None; typar_xmldoc = XmlDoc.Empty; typar_constraints = cs; typar_attribs = [] }
+        | _ -> x.typar_opt_data <- Some { typar_il_name = None; typar_xmldoc = XmlDoc.Empty; typar_constraints = cs; typar_attribs = []; typar_staticarg_kind = None }
 
 
     /// Creates a type variable that contains empty data, and is not yet linked. Only used during unpickling of F# metadata.
@@ -2230,7 +2254,7 @@ and
         x.typar_solution <- tg.typar_solution
         match tg.typar_opt_data with
         | Some tg -> 
-            let optData = { typar_il_name = tg.typar_il_name; typar_xmldoc = tg.typar_xmldoc; typar_constraints = tg.typar_constraints; typar_attribs = tg.typar_attribs }
+            let optData = { typar_il_name = tg.typar_il_name; typar_xmldoc = tg.typar_xmldoc; typar_constraints = tg.typar_constraints; typar_attribs = tg.typar_attribs; typar_staticarg_kind = tg.typar_staticarg_kind }
             x.typar_opt_data <- Some optData
         | None -> ()
 
@@ -3084,7 +3108,8 @@ and
                     [ for resolver in resolvers  do
                         let moduleOrNamespace = if j = 0 then null else path.[0..j-1]
                         let typename = path.[j]
-                        let resolution = ExtensionTyping.TryLinkProvidedType(resolver,moduleOrNamespace,typename,m)
+                        let importQualifiedTypeNameAsTypeValue (qname: string) = ccu.ImportQualifiedTypeNameAsTypeValue(qname, m)
+                        let resolution = ExtensionTyping.TryLinkProvidedType(resolver,importQualifiedTypeNameAsTypeValue,moduleOrNamespace,typename,m)
                         match resolution with
                         | None | Some (Tainted.Null) -> ()
                         | Some st -> yield (resolver,st) ]
@@ -3916,6 +3941,11 @@ and
     /// Indicates the type is a unit-of-measure expression being used as an argument to a type or member
     | TType_measure of Measure
 
+#if !NO_EXTENSIONTYPING
+    /// Indicates the type is a static argument to a type provider
+    | TType_staticarg of TType * StaticArg
+#endif
+
     /// For now, used only as a discriminant in error message.
     /// See https://github.com/Microsoft/visualfsharp/issues/2561
     member x.GetAssemblyName() =
@@ -3929,6 +3959,9 @@ and
         | TType_ucase (_uc,_tinst)       ->
             let (TILObjectReprData(scope,_nesting,_definition)) = _uc.Tycon.ILTyconInfo
             scope.QualifiedName
+#if !NO_EXTENSIONTYPING
+        | TType_staticarg(_,_arg)        -> ""
+#endif
 
     [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]
     member x.DebugText  =  x.ToString()
@@ -3949,6 +3982,9 @@ and
             | None -> tp.DisplayName
             | Some _ -> tp.DisplayName + " (solved)"
         | TType_measure ms -> ms.ToString()
+#if !NO_EXTENSIONTYPING
+        | TType_staticarg (_,arg) -> "static arg " + arg.ToString()
+#endif
 
 and TypeInst = TType list 
 
@@ -4013,10 +4049,19 @@ and
       /// Triggered when the contents of the CCU are invalidated
       InvalidateEvent : IEvent<string> 
 
-      /// A helper function used to link method signatures using type equality. This is effectively a forward call to the type equality 
-      /// logic in tastops.fs
+      /// A helper function used to link provided types
       ImportProvidedType : Tainted<ProvidedType> -> TType 
       
+      /// A helper function used to link provided types
+      ImportQualifiedTypeNameAsTypeValue : string * range -> System.Type
+
+      /// The data strcture to amortize the production of types as values
+      mutable ReflectAssembly : Lazy<System.Reflection.Assembly>
+
+      /// A hack used to get back to the assembly being compiled.  This is called when we 
+      // a type in the assembly being compiled has been used as a type argument to a type provider.
+      mutable GetCcuBeingCompiledHack : unit -> CcuThunk option
+
 #endif
       /// Indicates that this DLL uses pre-F#-4.0 quotation literals somewhere. This is used to implement a restriction on static linking
       mutable UsesFSharp20PlusQuotations : bool
@@ -4118,6 +4163,11 @@ and
     /// Used to make 'forward' calls into the loader during linking
     member ccu.ImportProvidedType ty : TType = ccu.Deref.ImportProvidedType ty
 
+      /// A helper function used to link provided types
+    member ccu.ImportQualifiedTypeNameAsTypeValue (qname, m) : System.Type = ccu.Deref.ImportQualifiedTypeNameAsTypeValue (qname, m)
+    member ccu.ReflectAssembly = ccu.Deref.ReflectAssembly.Value
+    member ccu.GetCcuBeingCompiledHack() = ccu.Deref.GetCcuBeingCompiledHack()
+      
 #endif
 
     /// The fully qualified assembly reference string to refer to this assembly. This is persisted in quotations 
@@ -4301,8 +4351,8 @@ and [<RequireQualifiedAccess>]
     | Single   of single
     | Double   of double
     | Char     of char
-    | String   of string
-    | Decimal  of Decimal 
+    | String   of string // in unicode 
+    | Decimal  of Decimal
     | Unit
     | Zero // null/zero-bit-pattern 
 
@@ -5223,7 +5273,7 @@ let mkTyparTy (tp:Typar) =
     | TyparKind.Measure -> TType_measure (Measure.Var tp)
 
 let copyTypar (tp: Typar) = 
-    let optData = tp.typar_opt_data |> Option.map (fun tg -> { typar_il_name = tg.typar_il_name; typar_xmldoc = tg.typar_xmldoc; typar_constraints = tg.typar_constraints; typar_attribs = tg.typar_attribs })
+    let optData = tp.typar_opt_data |> Option.map (fun tg -> { typar_il_name = tg.typar_il_name; typar_xmldoc = tg.typar_xmldoc; typar_constraints = tg.typar_constraints; typar_attribs = tg.typar_attribs; typar_staticarg_kind = tg.typar_staticarg_kind })
     Typar.New { typar_id       = tp.typar_id
                 typar_flags    = tp.typar_flags
                 typar_stamp    = newStamp()
@@ -5525,7 +5575,7 @@ let NewTypar (kind,rigid,Typar(id,staticReq,isCompGen),isFromError,dynamicReq,at
         typar_opt_data =
             match attribs with
             | [] -> None
-            | _ -> Some { typar_il_name = None; typar_xmldoc = XmlDoc.Empty; typar_constraints = []; typar_attribs = attribs } } 
+            | _ -> Some { typar_il_name = None; typar_xmldoc = XmlDoc.Empty; typar_constraints = []; typar_attribs = attribs; typar_staticarg_kind = None } } 
 
 let NewRigidTypar nm m = NewTypar (TyparKind.Type,TyparRigidity.Rigid,Typar(mkSynId m nm,NoStaticReq,true),false,TyparDynamicReq.Yes,[],false,false)
 

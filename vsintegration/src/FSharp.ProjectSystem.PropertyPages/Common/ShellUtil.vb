@@ -10,6 +10,7 @@ Imports System.Drawing
 Imports System.IO
 Imports System.Windows.Forms
 Imports System.Windows.Forms.Design
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 
 Namespace Microsoft.VisualStudio.Editors.Common

@@ -9,7 +9,8 @@ Imports System.Globalization
 Imports System.Windows.Forms
 Imports System.ComponentModel
 Imports VSLangProj80
-Imports VSLangProj90
+Imports VslangProj90
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 Namespace Microsoft.VisualStudio.Editors.Common
 

@@ -23,6 +23,7 @@ Imports VslangProj90
 Imports VslangProj100
 Imports System.Runtime.Versioning
 Imports Microsoft.VisualStudio.FSharp.ProjectSystem
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 Namespace Microsoft.VisualStudio.Editors.PropertyPages
 

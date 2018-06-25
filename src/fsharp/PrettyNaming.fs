@@ -544,7 +544,7 @@ module public Microsoft.FSharp.Compiler.PrettyNaming
         
     /// Return a string array delimited by the given separator.
     /// Note that a quoted string is not going to be mangled into pieces. 
-    let private splitAroundQuotation (text:string) (separator:char) =
+    let splitAroundQuotation (text:string) (separator:char) =
         let length = text.Length
         let isNotQuotedQuotation n = n > 0 && text.[n-1] <> '\\'
         let rec split (i, cur, group, insideQuotation) =        
@@ -562,7 +562,7 @@ module public Microsoft.FSharp.Compiler.PrettyNaming
 
     /// Return a string array delimited by the given separator up to the maximum number.
     /// Note that a quoted string is not going to be mangled into pieces.
-    let private splitAroundQuotationWithCount (text:string) (separator:char) (count:int)=
+    let splitAroundQuotationWithCount (text:string) (separator:char) (count:int)=
         if count <= 1 then [| text |] else
         let mangledText  = splitAroundQuotation text separator
         match mangledText.Length > count with
@@ -630,57 +630,4 @@ module public Microsoft.FSharp.Compiler.PrettyNaming
             Some(if fst resT = "_" then APInfo(false,resH,m) else APInfo(true,names,m))
         else 
             None
-    
-    let private mangleStaticStringArg (nm:string,v:string) = 
-        nm + "=" + "\"" + v.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\""
-
-    let private tryDemangleStaticStringArg (mangledText:string) =
-        match splitAroundQuotationWithCount mangledText '=' 2 with
-        | [| nm; v |] ->
-            if v.Length >= 2 then
-                Some(nm,v.[1..v.Length-2].Replace("\\\\","\\").Replace("\\\"","\""))
-            else
-                Some(nm,v)
-        | _ -> None
-
-    exception InvalidMangledStaticArg of string
-
-    /// Demangle the static parameters
-    let demangleProvidedTypeName (typeLogicalName:string) = 
-        if typeLogicalName.Contains "," then 
-            let pieces = splitAroundQuotation typeLogicalName ','
-            match pieces with
-            | [| x; "" |] -> x, [| |]
-            | _ ->
-                let argNamesAndValues = pieces.[1..] |> Array.choose tryDemangleStaticStringArg
-                if argNamesAndValues.Length = (pieces.Length - 1) then
-                    pieces.[0], argNamesAndValues
-                else
-                    typeLogicalName, [| |]
-        else 
-            typeLogicalName, [| |]
-
-    /// Mangle the static parameters for a provided type or method
-    let mangleProvidedTypeName (typeLogicalName, nonDefaultArgs) = 
-        let nonDefaultArgsText = 
-            nonDefaultArgs
-            |> Array.map mangleStaticStringArg
-            |> String.concat ","
-
-        if nonDefaultArgsText = "" then
-            typeLogicalName
-        else
-            typeLogicalName + "," + nonDefaultArgsText
-
-
-    /// Mangle the static parameters for a provided type or method
-    let computeMangledNameWithoutDefaultArgValues(nm, staticArgs, defaultArgValues) =
-        let nonDefaultArgs = 
-            (staticArgs,defaultArgValues) 
-            ||> Array.zip 
-            |> Array.choose (fun (staticArg, (defaultArgName, defaultArgValue)) -> 
-                let actualArgValue = string staticArg 
-                match defaultArgValue with 
-                | Some v when v = actualArgValue -> None
-                | _ -> Some (defaultArgName, actualArgValue))
-        mangleProvidedTypeName (nm, nonDefaultArgs)
+   

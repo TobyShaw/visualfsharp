@@ -1530,7 +1530,7 @@ let u_tyar_spec_data st =
       typar_opt_data=
         match g, e, c with
         | XmlDoc [||], [], [] -> None
-        | _ -> Some { typar_il_name = None; typar_xmldoc = g; typar_constraints = e; typar_attribs = c } }
+        | _ -> Some { typar_il_name = None; typar_xmldoc = g; typar_constraints = e; typar_attribs = c; typar_staticarg_kind=None } } //TODO
 
 let u_tyar_spec st = 
     u_osgn_decl st.itypars u_tyar_spec_data st 
@@ -1551,7 +1551,11 @@ let _ = fill_p_ty (fun ty st ->
     | TType_var r                       -> p_byte 4 st; p_tpref r st
     | TType_forall (tps,r)              -> p_byte 5 st; p_tup2 p_tyar_specs p_ty (tps,r) st
     | TType_measure unt                 -> p_byte 6 st; p_measure_expr unt st
+#if !NO_EXTENSIONTYPING
+    | TType_staticarg _                 -> failwith "" // FS-1023 TODO
+#endif
     | TType_ucase (uc,tinst)            -> p_byte 7 st; p_tup2 p_ucref p_tys (uc,tinst) st)
+
 
 let _ = fill_u_ty (fun st ->
     let tag = u_byte st
@@ -1997,9 +2001,9 @@ and u_entity_spec_data st : Entity =
       entity_il_repr_cache=newCache()  
       entity_opt_data=
         match x2b, x10b, x15, x8, x4a, x4b, x14 with
-        | None, TyparKind.Type, None, None, TAccess [], TAccess [], TExnNone -> None
+        | None, TyparKind.Type, None, None, TAccess [], TAccess [], TExnNone -> None 
         | _ -> Some { Entity.EmptyEntityOptData with entity_compiled_name = x2b; entity_kind = x10b; entity_xmldoc= defaultArg x15 XmlDoc.Empty; entity_xmldocsig = System.String.Empty; entity_tycon_abbrev = x8; entity_accessiblity = x4a; entity_tycon_repr_accessibility = x4b; entity_exn_info = x14 }
-    } 
+    }
 
 and u_tcaug st = 
     let a1,a2,a3,b2,c,d,e,g,_space = 

@@ -415,6 +415,13 @@
       <Link>Logic\PostInferenceChecks.fs</Link>
     </Compile>
     <Compile Include="..\..\fsharp\TypeChecker.fsi">
+    <Compile Include="$(FSharpSourcesRoot)\fsharp\TypeChecker.fsi">
+    <Compile Include="..\AssemblyReaderReflection.fs">
+      <Link>Logic\AssemblyReaderReflection.fs</Link>
+    <Compile Include="..\TastReflect.fs">
+      <Link>Logic\TastReflect.fs</Link>
+    </Compile>
+    <Compile Include="..\TypeChecker.fsi">
       <Link>Logic\TypeChecker.fsi</Link>
     </Compile>
     <Compile Include="..\..\fsharp\TypeChecker.fs">

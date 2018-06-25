@@ -391,8 +391,6 @@ type TcConfigBuilder =
     member AddEmbeddedResource: string -> unit
     
     static member SplitCommandLineResourceInfo: string -> string * string * ILResourceAccess
-
-
     
 [<Sealed>]
 // Immutable TcConfig
@@ -591,7 +589,7 @@ type TcImports =
     member GetCcusExcludingBase: unit -> CcuThunk list 
     member FindDllInfo: CompilationThreadToken * range * string -> ImportedBinary
     member TryFindDllInfo: CompilationThreadToken * range * string * lookupOnly: bool -> option<ImportedBinary>
-    member FindCcuFromAssemblyRef: CompilationThreadToken * range * ILAssemblyRef -> CcuResolutionResult
+    member FindCcuFromScopeRef: CompilationThreadToken * range * ILScopeRef -> CcuResolutionResult
 #if !NO_EXTENSIONTYPING
     member ProviderGeneratedTypeRoots: ProviderGeneratedType list
 #endif

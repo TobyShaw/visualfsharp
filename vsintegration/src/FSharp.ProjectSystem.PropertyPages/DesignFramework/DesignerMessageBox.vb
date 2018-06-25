@@ -9,6 +9,7 @@ Imports System.Windows.Forms.Design
 Imports System.ComponentModel
 Imports System.ComponentModel.Design
 Imports System.Runtime.InteropServices
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 Namespace Microsoft.VisualStudio.Editors.DesignerFramework
 

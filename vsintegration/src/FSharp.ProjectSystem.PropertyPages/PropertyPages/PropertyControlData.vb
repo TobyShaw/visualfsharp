@@ -12,6 +12,7 @@ Imports System.Runtime.InteropServices
 Imports System.Collections
 Imports Microsoft.VisualStudio.Shell.Interop
 Imports System.ComponentModel
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 Namespace Microsoft.VisualStudio.Editors.PropertyPages
 

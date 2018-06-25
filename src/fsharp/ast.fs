@@ -1183,6 +1183,8 @@ and
     | None       of range:range
     /// An exception definition , "exception E = ..."
     | Exception of SynExceptionDefnRepr
+    /// A provider definition , "provider P = ..."
+
 
     member this.Range =
         match this with
@@ -1250,6 +1252,7 @@ and
     SynTypeDefnSig =
     /// The information for a type definition in a signature
     | TypeDefnSig of SynComponentInfo * SynTypeDefnSigRepr * SynMemberSigs * range:range
+
 
 and SynFields = SynField list
 
@@ -1340,6 +1343,7 @@ and
         | ObjectModel (range=m)
         | Simple (range=m) -> m
         | Exception t -> t.Range
+
 
 and
     [<NoEquality; NoComparison>]
@@ -1443,6 +1447,7 @@ and
         | SynModuleSigDecl.Open (range=m)
         | SynModuleSigDecl.NamespaceFragment (SynModuleOrNamespaceSig(range=m))
         | SynModuleSigDecl.HashDirective (range=m) -> m
+
 
 and SynModuleSigDecls = SynModuleSigDecl list
 

@@ -569,6 +569,9 @@ let rec SimplifyMeasuresInType g resultFirst ((generalizable, generalized) as pa
 
     | TType_fun (d, r) -> if resultFirst then SimplifyMeasuresInTypes g param [r;d] else SimplifyMeasuresInTypes g param [d;r]        
     | TType_var _   -> param
+#if !NO_EXTENSIONTYPING
+    | TType_staticarg _ -> param
+#endif
     | TType_forall (_, tau) -> SimplifyMeasuresInType g resultFirst param tau
     | TType_measure unt -> 
         let generalizable', newlygeneralized = SimplifyMeasure g generalizable unt   
@@ -608,6 +611,9 @@ let rec GetMeasureVarGcdInType v ty =
     | TType_var _   -> ZeroRational
     | TType_forall (_, tau) -> GetMeasureVarGcdInType v tau
     | TType_measure unt -> MeasureVarExponent v unt
+#if !NO_EXTENSIONTYPING
+    | TType_staticarg _ -> failwith "" // FS-1023 TODO
+#endif
 
 and GetMeasureVarGcdInTypes v tys =
     match tys with
@@ -800,7 +806,7 @@ and SolveTypeEqualsType (csenv:ConstraintSolverEnv) ndeep m2 (trace: OptionalTra
     | (TType_app (tc2, [ms]), _) when (tc2.IsMeasureableReprTycon && typeEquiv csenv.g sty2 (reduceTyconRefMeasureableOrProvided csenv.g tc2 [ms]))
         -> SolveTypeEqualsType csenv ndeep m2 trace None ms (TType_measure Measure.One)
 
-    | TType_app (tc1, l1)  , TType_app (tc2, l2) when tyconRefEq g tc1 tc2  -> SolveTypeEqualsTypeEqns csenv ndeep m2 trace None l1 l2
+    | TType_app (tc1, l1)  , TType_app (tc2, l2) when tc1.LogicalName = tc2.LogicalName (* tyconRefEq g tc1 tc2 *) -> SolveTypeEqualsTypeEqns csenv ndeep m2 trace None l1 l2
     | TType_app (_, _)   , TType_app (_, _)   ->  localAbortD
     | TType_tuple (tupInfo1, l1)      , TType_tuple (tupInfo2, l2)      -> 
         if evalTupInfoIsStruct tupInfo1 <> evalTupInfoIsStruct tupInfo2 then ErrorD (ConstraintSolverError(FSComp.SR.tcTupleStructMismatch(), csenv.m, m2)) else
@@ -2691,7 +2697,7 @@ let CodegenWitnessThatTypeSupportsTraitConstraint tcVal g amap m (traitInfo:Trai
                 let wrap, h', _readonly, _writeonly = mkExprAddrOfExpr g true false PossiblyMutates h None m 
                 ResultD (Some (wrap (Expr.Op(TOp.TraitCall(traitInfo), [], (h' :: t), m))))
             else        
-                ResultD (Some (MakeMethInfoCall amap m minfo methArgTys argExprs ))
+                ResultD (Some (MakeMethInfoCall tcVal amap m minfo methArgTys argExprs ))
 
         | Choice2Of4 (tinst, rfref, isSet) -> 
             let res = 

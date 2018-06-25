@@ -1129,6 +1129,8 @@ let ResolveProvidedTypeNameInEntity (amap, m, typeName, modref: ModuleOrNamespac
             []
         | nestedSty -> 
             [AddEntityForProvidedType (amap, modref, resolutionEnvironment, nestedSty, m) ]
+    // We are in a module/namespace, which may contain a provider alias. TODO: Implement
+    | TNoRepr -> []
     | _ -> []
 #endif
 

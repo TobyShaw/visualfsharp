@@ -495,6 +495,12 @@ type ILScopeRef =
         | ILScopeRef.Module mref -> "module "+mref.Name
         | ILScopeRef.Assembly aref -> aref.QualifiedName
 
+    member scoref.QualifiedNameWithNoShortPrimaryAssembly = 
+        match scoref with 
+        | ILScopeRef.Local -> ""
+        | ILScopeRef.Module mref -> "module "+mref.Name
+        | ILScopeRef.Assembly aref -> aref.QualifiedName
+
 type ILArrayBound = int32 option 
 
 type ILArrayBounds = ILArrayBound * ILArrayBound

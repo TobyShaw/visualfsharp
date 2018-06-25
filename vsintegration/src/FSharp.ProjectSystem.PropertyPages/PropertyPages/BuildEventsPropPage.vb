@@ -6,6 +6,7 @@ Imports System.Runtime.InteropServices
 Imports Microsoft.VisualStudio.Shell.Interop
 Imports System.ComponentModel
 Imports VSLangProj80
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 Namespace Microsoft.VisualStudio.Editors.PropertyPages
 

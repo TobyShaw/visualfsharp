@@ -13,6 +13,7 @@ Imports System
 Imports System.Diagnostics
 Imports System.Runtime.InteropServices
 Imports VB = Microsoft.VisualBasic
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 Namespace Microsoft.VisualStudio.Editors.PropertyPages
 

@@ -14,6 +14,7 @@ Imports Microsoft.VisualStudio.Shell.Interop
 Imports VSLangProj80
 Imports VSLangProj110
 Imports System.Runtime.Versioning
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 Namespace Microsoft.VisualStudio.Editors.PropertyPages
 

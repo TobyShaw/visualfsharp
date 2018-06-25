@@ -253,7 +253,7 @@ module Keywords =
        ALWAYS, "open"       ,OPEN
        ALWAYS, "or"         ,OR
        FSHARP, "override"   ,OVERRIDE
-       ALWAYS, "private"    ,PRIVATE  
+       ALWAYS, "private"    ,PRIVATE
        FSHARP, "public"     ,PUBLIC
        ALWAYS, "rec"        ,REC
        FSHARP, "return"      ,YIELD(false)

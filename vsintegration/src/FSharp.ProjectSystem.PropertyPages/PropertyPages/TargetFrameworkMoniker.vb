@@ -6,6 +6,7 @@ Imports System
 Imports System.Collections.Generic
 Imports System.Runtime.Versioning
 Imports System.ComponentModel
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 Namespace Microsoft.VisualStudio.Editors.PropertyPages
 

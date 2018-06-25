@@ -17,6 +17,7 @@ Imports System.Text
 Imports System.Windows.Forms
 Imports VB = Microsoft.VisualBasic
 Imports Microsoft.VisualStudio.OLE.Interop
+Imports VSErrorHandler = Microsoft.VisualStudio.ErrorHandler
 
 Namespace Microsoft.VisualStudio.Editors.Common
 
